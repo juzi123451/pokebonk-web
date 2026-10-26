@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <script src="./api-core.js"></script>
+    <script src="./offline-fetch.js"></script>
+    
+    <meta name="pokebonk-build" content="mvpjh5lt">
+    <script data-pb-recovery="">// Inlined before the module entry by Vite: it must work even when that entry cannot load.
+(() => {
+  const build = document.querySelector('meta[name="pokebonk-build"]')?.content || 'unknown';
+  const texts = {"es":"Reintentar","en":"Retry","pt":"Tentar de novo","fr":"Réessayer","ja":"再試行","zh":"重试","zht":"重試","ko":"다시 시도","ru":"Повторить"};
+  const tag = document.documentElement.lang.toLowerCase();
+  const lang = tag === 'zh-hant' ? 'zht' : tag.split('-')[0];
+  const retryText = texts[lang] || texts.en;
+  let ready = false, recovering = false;
+  const urls = new Set();
+  const remember = (value) => {
+    try {
+      const url = new URL(value, location.href);
+      if (url.origin === location.origin && /\/assets\/.*\.(js|css)(\?.*)?$/.test(url.pathname + url.search)) urls.add(url.href);
+    } catch { /* An error without a resource URL. */ }
+  };
+  const navigate = () => {
+    const url = new URL(location.href);
+    url.searchParams.set('pb-reload', String(Date.now()));
+    location.replace(url.href);
+  };
+  const showRetry = () => {
+    if (document.getElementById('boot-retry')) return;
+    const card = document.createElement('div');
+    card.id = 'boot-retry';
+    card.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:#1a1630;color:white;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;font:700 24px system-ui;text-align:center';
+    const title = document.createElement('strong'); title.textContent = 'PokéBonk';
+    const btn = document.createElement('button'); btn.textContent = retryText;
+    btn.style.cssText = 'padding:14px 32px;border:0;border-radius:28px;background:#e94756;color:white;font:700 18px system-ui;cursor:pointer';
+    btn.onclick = () => { void refresh().finally(navigate); };
+    card.append(title, btn);
+    (document.body || document.documentElement).append(card);
+  };
+  const refresh = async () => {
+    document.querySelectorAll('script[type="module"][src],link[rel="stylesheet"][href],link[rel="modulepreload"][href]').forEach((el) => remember(el.src || el.href));
+    // cache:reload replaces a bad HTTP cache entry without clearing accounts or pending runs.
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 8000);
+    try { await Promise.allSettled([...urls].map((url) => fetch(url, { cache: 'reload', signal: ctl.signal }))); }
+    finally { clearTimeout(timer); }
+  };
+  const recover = async () => {
+    if (ready || recovering) return;
+    recovering = true;
+    showRetry();
+    let once = false;
+    try {
+      const key = 'pb.bootRetry.' + build;
+      once = sessionStorage.getItem(key) !== '1';
+      sessionStorage.setItem(key, '1');
+    } catch { /* Storage unavailable: offer the button, do not risk a reload loop. */ }
+    if (once) { try { await refresh(); } finally { navigate(); } }
+  };
+  addEventListener('error', (event) => {
+    const target = event.target;
+    if (target?.tagName === 'SCRIPT' && target.type === 'module' || target?.tagName === 'LINK' && ['stylesheet', 'modulepreload'].includes(target.rel)) {
+      remember(target.src || target.href); void recover();
+    } else if (event.filename) {
+      remember(event.filename);
+      if (urls.size) void recover();
+    }
+  }, true);
+  addEventListener('vite:preloadError', (event) => {
+    if (ready) return;
+    // Let boot.ts catch the rejection; suppressing it would falsely mark a missing module as ready.
+    const message = String(event.payload?.message || '');
+    for (const url of message.match(/https?:\/\/[^\s"'<>]+/g) || []) remember(url);
+    void recover();
+  });
+  addEventListener('pokebonk:boot-failed', () => { void recover(); });
+  addEventListener('pokebonk:modules-ready', () => { ready = true; document.getElementById('boot-retry')?.remove(); });
+  // A stalled download/font/GPU initialization must still leave a usable action, without auto-reloading slow links.
+  setTimeout(() => { if (!ready) showRetry(); }, 45000);
+})();
+</script>
+
+    <meta charset="UTF-8" />
+    <!-- On touch screens core/touch.ts rewrites the viewport (landscape phones get a wider virtual one). -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#1a1630" />
+    <!-- Light by default (dark is opt-in: Ajustes → Tema, see the script below and ui/theme.ts; meta values flip to «dark» then). «only light» stops the forced dark mode of Chrome Android, vivo, Samsung and QQ from inverting colours (reports 6292, 6173, 7280). -->
+    <meta name="color-scheme" content="only light" />
+    <meta name="supported-color-schemes" content="light" />
+    <meta name="darkreader-lock" />
+    <!-- Theme before the first paint (no white flash): same rule as src/ui/theme.ts. Saved choice, else the system's. -->
+    <script>
+      (function () {
+        try {
+          var p = localStorage.getItem('pokebonk.theme');
+          var d = p === 'dark' || (p !== 'light' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+          var r = document.documentElement;
+          r.setAttribute('data-theme', d ? 'dark' : 'light');
+          if (d) {
+            document.querySelector('meta[name="color-scheme"]').setAttribute('content', 'dark');
+            document.querySelector('meta[name="supported-color-schemes"]').setAttribute('content', 'dark');
+            document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0f1320');
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <!-- Title, description, canonical, hreflang, Open Graph, Twitter and JSON-LD come from src/seo.ts (vite.config.ts). -->
+    <title>PokéBonk · Survivor 3D de Pokémon gratis en el navegador</title>
+    <meta name="description" content="Survivor 3D gratis en el navegador con los 151 Pokémon de Kanto: sobrevive a hordas salvajes, evoluciona, lanza tu Ultimate y desbloquea la Liga. Fan-game no oficial." />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <link rel="canonical" href="https://pokebonk.com/" />
+    <link rel="alternate" hreflang="es" href="https://pokebonk.com/?lang=es" />
+    <link rel="alternate" hreflang="en" href="https://pokebonk.com/?lang=en" />
+    <link rel="alternate" hreflang="pt" href="https://pokebonk.com/?lang=pt" />
+    <link rel="alternate" hreflang="fr" href="https://pokebonk.com/?lang=fr" />
+    <link rel="alternate" hreflang="ja" href="https://pokebonk.com/?lang=ja" />
+    <link rel="alternate" hreflang="zh-CN" href="https://pokebonk.com/?lang=zh" />
+    <link rel="alternate" hreflang="zh-TW" href="https://pokebonk.com/?lang=zht" />
+    <link rel="alternate" hreflang="ko" href="https://pokebonk.com/?lang=ko" />
+    <link rel="alternate" hreflang="ru" href="https://pokebonk.com/?lang=ru" />
+    <link rel="alternate" hreflang="x-default" href="https://pokebonk.com/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="PokéBonk" />
+    <meta property="og:title" content="PokéBonk · Survivor 3D de Pokémon gratis en el navegador" />
+    <meta property="og:description" content="Survivor 3D gratis en el navegador con los 151 Pokémon de Kanto: sobrevive a hordas salvajes, evoluciona, lanza tu Ultimate y desbloquea la Liga. Fan-game no oficial." />
+    <meta property="og:url" content="https://pokebonk.com/" />
+    <meta property="og:image" content="https://pokebonk.com/social/card-es.jpg" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="PokéBonk: un bosque de mesetas con una Poké Ball en un altar. Survivor 3D gratis en el navegador." />
+    <meta property="og:locale" content="es_ES" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta property="og:locale:alternate" content="pt_BR" />
+    <meta property="og:locale:alternate" content="fr_FR" />
+    <meta property="og:locale:alternate" content="ja_JP" />
+    <meta property="og:locale:alternate" content="zh_CN" />
+    <meta property="og:locale:alternate" content="zh_TW" />
+    <meta property="og:locale:alternate" content="ko_KR" />
+    <meta property="og:locale:alternate" content="ru_RU" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="PokéBonk · Survivor 3D de Pokémon gratis en el navegador" />
+    <meta name="twitter:description" content="Survivor 3D gratis en el navegador con los 151 Pokémon de Kanto: sobrevive a hordas salvajes, evoluciona, lanza tu Ultimate y desbloquea la Liga. Fan-game no oficial." />
+    <meta name="twitter:image" content="https://pokebonk.com/social/card-es.jpg" />
+    <meta name="twitter:image:alt" content="PokéBonk: un bosque de mesetas con una Poké Ball en un altar. Survivor 3D gratis en el navegador." />
+    <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"WebSite","@id":"https://pokebonk.com/#website","name":"PokéBonk","url":"https://pokebonk.com/","inLanguage":["es","en","pt","fr","ja","zh-CN","zh-TW","ko","ru"]},{"@type":["VideoGame","WebApplication"],"@id":"https://pokebonk.com/#game","name":"PokéBonk","url":"https://pokebonk.com/","description":"Survivor 3D gratis en el navegador con los 151 Pokémon de Kanto: sobrevive a hordas salvajes, evoluciona, lanza tu Ultimate y desbloquea la Liga. Fan-game no oficial.","image":"https://pokebonk.com/social/card-es.jpg","inLanguage":"es","isPartOf":{"@id":"https://pokebonk.com/#website"},"genre":["Survivor","Roguelite","Action"],"gamePlatform":"Web browser","playMode":"SinglePlayer","applicationCategory":"GameApplication","operatingSystem":"Any (WebGL)","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"EUR"},"sameAs":["https://discord.gg/X7KusQqx8X"]}]}</script>
+    <meta name="application-name" content="PokéBonk" />
+    <meta name="apple-mobile-web-app-title" content="PokéBonk" />
+    <link rel="icon" href="./favicon.ico" sizes="48x48" />
+    <link rel="icon" href="./icons/favicon-96.png" type="image/png" sizes="96x96" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <script type="module" crossorigin src="./assets/main-B5SeHpLD-mvpjh5lt.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/modulepreload-polyfill-P2Xu9kJm-mvpjh5lt.js">
+    <link rel="modulepreload" crossorigin href="./assets/i18n-Bjw6RPm7-mvpjh5lt.js">
+  </head>
+  <body>
+    <noscript><main style="max-width:640px;margin:40px auto;padding:0 16px;color:#fff;font:16px/1.5 system-ui,sans-serif"><h1>PokéBonk</h1><p>Survivor 3D gratis en el navegador con los 151 Pokémon de Kanto: sobrevive a hordas salvajes, evoluciona, lanza tu Ultimate y desbloquea la Liga. Fan-game no oficial.</p><p>PokéBonk necesita JavaScript y WebGL para funcionar. Actívalos y recarga la página.</p><p><a href="/?lang=es" hreflang="es">ES</a> · <a href="/?lang=en" hreflang="en">EN</a> · <a href="/?lang=pt" hreflang="pt">PT</a> · <a href="/?lang=fr" hreflang="fr">FR</a> · <a href="/?lang=ja" hreflang="ja">JA</a> · <a href="/?lang=zh" hreflang="zh-CN">ZH</a> · <a href="/?lang=zht" hreflang="zh-TW">ZHT</a> · <a href="/?lang=ko" hreflang="ko">KO</a> · <a href="/?lang=ru" hreflang="ru">RU</a></p><p><a href="https://discord.gg/X7KusQqx8X">Discord</a> · <a href="/legal">Legal</a></p></main></noscript>
+    <canvas id="game"></canvas>
+    <div id="ui"></div>
+  </body>
+</html>
