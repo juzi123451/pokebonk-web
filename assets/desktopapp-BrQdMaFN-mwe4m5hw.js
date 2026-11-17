@@ -1,0 +1,1 @@
+export{Y as DESKTOP_APP,X as androidAppVersion,Z as apkUrl}from"./menus-Ib2K8m4Q-mwe4m5hw.js";

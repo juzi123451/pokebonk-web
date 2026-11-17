@@ -3,21 +3,18 @@
  *
  * 设计：
  *   - 纯函数，不依赖 Node，只用 localStorage
- *   - 从 offline/server.js 移植，逻辑保持一致
- *   - 由 offline-boot.js 在页面加载前挂到 window.fetch 上，
- *     拦截 /status /auth /profile /runs 等请求，直接返回本地结果
+ *   - 存档结构严格对齐游戏真实 schema（见 baseProfile 注释）
+ *   - 由 offline-fetch.js 拦截 /status /auth /profile /runs 等请求
  *
- * 存档：
- *   localStorage['pb.offline.profile'] = JSON
- *   导出/导入由面板的「存档」按钮负责
+ * 存档：localStorage['pb.offline.profile']
  * ==========================================================================*/
 (function (global) {
   'use strict';
 
   const STORE_KEY = 'pb.offline.profile';
-  const BUILD = 'mvlr7rzv';
-  const VERSION = '0.8.34';
-  const KANTO = Array.from({ length: 151 }, (_, i) => i + 1);
+  const BUILD = 'mwe4m5hw';
+  const VERSION = '0.9.26';
+  const KANTO_MAX = 151;
 
   const LAB = [
     ['slot-move', 1], ['slot-vit', 2], ['reroll', 6], ['skip', 6], ['banish', 6],
@@ -26,10 +23,21 @@
     ['crit', 5], ['atkspd', 5], ['ult', 5], ['bag', 1],
   ];
 
-  const BIOMES = ['forest', 'desert', 'coast', 'glacier', 'graveyard', 'volcano'];
+  // 游戏 settings 的完整默认值（从主包 cW 提取）
   const SETTINGS_DEFAULT = {
-    quality: 'high', shake: 1, music: 1, sfx: 1, aimMode: 'auto',
-    skipEmptyLevelUp: false, calmCandies: false, pickupFx: 'full', fps: 0,
+    master: 0.8, music: 0.5, sfx: 0.7, cries: 0.6, menuMusic: 'auto',
+    quality: 'high', aimMode: 'auto', sensitivity: 1, invertY: false,
+    damageNumbers: true, floatText: true, shakeOn: true, screenShake: 1,
+    fov: 70, showFps: false, reduceFlashes: false, pixel: 0, muteHidden: true,
+    theme: 'auto', hudScale: 1, hudOpacity: 1, bossBarOpacity: 1,
+    bossHpText: 'num', showBanners: true, showBossBanners: true,
+    showMinimap: true, showLadder: true, showToasts: true, showStreak: true,
+    showItems: true, showTracked: true, lootMinRarity: 0, lootHideUse: false,
+    lootHideTreasure: false, mapScale: 1, mapIcons: 1, mapNorthUp: false,
+    mapFps: 'smooth', fxOpacity: 1, ownFxOpacity: 1, fxGlow: 1, touchScale: 1,
+    camDist: 9, calmCandies: false, pickupFx: 'full', mateFx: 'full',
+    skipEmptyLevelUp: false, hideOwnFx: false, fixedStick: false,
+    padRumble: true, padDead: 0.15,
   };
 
   /* ---------------------------------------------------------------- 工具 */
@@ -44,15 +52,17 @@
     (global.crypto || global.msCrypto).getRandomValues(b);
     return 'pb' + Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
   };
-  const union = (arr, add) => {
-    const s = new Set(arr || []);
-    for (const x of add || []) s.add(x);
-    return [...s];
-  };
   const PERIOD = () => ({ idx: 0, ids: [], prog: [], claimed: [], rerolls: 0 });
-  const sleepSync = () => {};
 
-  /* ---------------------------------------------------------------- 存档骨架 */
+  /* ---------------------------------------------------------------- SCHEMA
+   * 严格对齐游戏 lW() 的返回结构：
+   *   captured 是对象（id → 次数），不是数组
+   *   biomes   是对象（biomeId → 等级，forest 初始 0）
+   *   quests / research / lab / counters / best / times / kills / medals /
+   *   endless / forms 都是对象
+   *   starter  关都伙伴（1-151）
+   *   starterJ 城都伙伴（152-251）
+   * ------------------------------------------------------------------- */
   function baseProfile(name) {
     return {
       v: 1,
@@ -63,24 +73,23 @@
       bonk: 0,
       totalBonk: 0,
       unlocked: [],
-      league: 1,
+      league: [],
       starter: 0,
-      forms: {},
+      starterJ: 0,
+      johtoForms: [],
+      forms: [],
       research: {},
-      captured: [],
+      captured: {},
       seen: [],
-      played: {},
+      played: [],
       shinies: [],
       classics: [],
       skins: [],
       team: [],
       lab: {},
-      biomes: ['forest'],
-      quests: [],
-      counters: {
-        gold: 0, runs: 0, kills: 0, bosses: 0, legendaries: 0, chests: 0,
-        maxTime: 0, maxLevel: 0, playtime: 0, best_gold: 0,
-      },
+      biomes: { forest: 0 },
+      quests: {},
+      counters: {},
       runs: [],
       best: {},
       times: {},
@@ -93,18 +102,17 @@
       banished: [],
       itemsOwned: [],
       itemsOff: [],
+      movesOff: {},
+      typesOff: {},
       daily: PERIOD(),
       weekly: PERIOD(),
-      dailyStreak: 0,
+      dailyStreak: { last: 0, n: 0 },
       bag: {},
-      avatar: null,
-      frame: null,
-      title: null,
+      avatar: '',
+      frame: '',
+      title: '',
+      banner: '',
       cosmetics: [],
-      wins: 0,
-      events: {},
-      winsAll: 0,
-      treasures: {},
     };
   }
 
@@ -112,18 +120,20 @@
     return baseProfile('Entrenador');
   }
 
+  // 富有的新号：给资源，但引导状态保持全新（starter/starterJ/league 都是初始值）
   function fullProfile() {
     const p = baseProfile('Entrenador');
     p.stardust = 999999;
     p.totalStardust = 999999;
-    p.league = 151;
-    p.unlocked = KANTO.slice();
-    p.captured = KANTO.slice();
-    p.seen = KANTO.slice();
-    p.biomes = BIOMES.slice();
+    p.bonk = 500;
+    p.totalBonk = 500;
     for (const [id, max] of LAB) p.lab[id] = max;
+    // 全地图解锁（对象形式，等级 0 = 已开放但没打过）
+    p.biomes = {};
+    for (const b of ['forest', 'desert', 'coast', 'glacier', 'graveyard', 'volcano', 'iris']) {
+      p.biomes[b] = 0;
+    }
     p.bag = { 'rare-candy': 99, 'lucky-egg': 1, 'amulet-coin': 1 };
-    p.medals = {};
     p.itemsOwned = ['toxic-orb'];
     return p;
   }
@@ -131,23 +141,31 @@
   function normalize(p) {
     const base = baseProfile(p && p.name);
     const out = { ...base, ...(p || {}) };
-    out.counters = { ...base.counters, ...(p && p.counters) };
-    out.settings = { ...SETTINGS_DEFAULT, ...(p && p.settings) };
-    out.lab = { ...(p && p.lab) };
-    out.daily = { ...PERIOD(), ...(p && p.daily) };
-    out.weekly = { ...PERIOD(), ...(p && p.weekly) };
-    for (const k of ['unlocked', 'captured', 'seen', 'shinies', 'classics',
-                     'skins', 'team', 'banished', 'itemsOwned', 'itemsOff',
-                     'cosmetics', 'biomes']) {
+
+    // 对象型字段
+    for (const k of ['research', 'captured', 'lab', 'quests', 'counters', 'best',
+                     'times', 'kills', 'medals', 'endless', 'forms', 'movesOff',
+                     'typesOff', 'bag']) {
+      if (!out[k] || typeof out[k] !== 'object' || Array.isArray(out[k])) out[k] = {};
+    }
+    // 数组型字段
+    for (const k of ['unlocked', 'league', 'seen', 'played', 'shinies', 'classics',
+                     'skins', 'team', 'johtoForms', 'banished', 'itemsOwned',
+                     'itemsOff', 'cosmetics', 'runs']) {
       if (!Array.isArray(out[k])) out[k] = [];
     }
-    if (!out.runs) out.runs = [];
-    if (!out.best) out.best = {};
-    if (!out.times) out.times = {};
-    if (!out.kills) out.kills = {};
-    if (!out.medals) out.medals = {};
-    if (!out.endless) out.endless = {};
-    if (!out.bag) out.bag = {};
+    // biomes 必须是对象
+    if (!out.biomes || typeof out.biomes !== 'object' || Array.isArray(out.biomes)) {
+      out.biomes = { forest: 0 };
+    }
+    if (!('forest' in out.biomes)) out.biomes.forest = 0;
+
+    out.settings = { ...SETTINGS_DEFAULT, ...(p && p.settings) };
+    out.daily = { ...PERIOD(), ...(p && p.daily) };
+    out.weekly = { ...PERIOD(), ...(p && p.weekly) };
+    out.dailyStreak = { last: 0, n: 0, ...(p && p.dailyStreak) };
+    if (typeof out.starter !== 'number') out.starter = 0;
+    if (typeof out.starterJ !== 'number') out.starterJ = 0;
     return out;
   }
 
@@ -177,17 +195,14 @@
         v: 1, profile: store, guest: guestSession, savedAt: now(),
       }));
     } catch (e) {
-      console.warn('[pb-offline] 存档写入失败（localStorage 满了？）', e);
+      console.warn('[pb-offline] 存档写入失败', e);
     }
   }
 
   function account() {
     return { id: 'local-1', name: store.name, guest: guestSession, created: store.created };
   }
-
-  function publicProfile() {
-    return store;
-  }
+  function publicProfile() { return store; }
 
   /* ---------------------------------------------------------------- 结算 */
   function applyActions(actions) {
@@ -195,34 +210,36 @@
       try {
         switch (a.t) {
           case 'addStardust':
-            store.stardust += a.v | 0;
-            store.totalStardust += a.v | 0;
+            store.stardust = (store.stardust | 0) + (a.v | 0);
+            store.totalStardust = (store.totalStardust | 0) + (a.v | 0);
             break;
           case 'addBonk':
-            store.bonk += a.v | 0;
-            store.totalBonk += a.v | 0;
+            store.bonk = (store.bonk | 0) + (a.v | 0);
+            store.totalBonk = (store.totalBonk | 0) + (a.v | 0);
             break;
           case 'unlock':
-            store.unlocked = union(store.unlocked, [a.id | 0]);
+            if (!store.unlocked.includes(a.id | 0)) store.unlocked.push(a.id | 0);
             break;
           case 'capture':
-            store.captured = union(store.captured, [a.id | 0]);
+            store.captured[a.id | 0] = (store.captured[a.id | 0] | 0) + 1;
             break;
           case 'seen':
-            store.seen = union(store.seen, [a.id | 0]);
+            if (!store.seen.includes(a.id | 0)) store.seen.push(a.id | 0);
             break;
-          case 'item':
-            if (Array.isArray(a.id)) store.itemsOwned = union(store.itemsOwned, a.id);
-            else store.itemsOwned = union(store.itemsOwned, [a.id]);
+          case 'item': {
+            const ids = Array.isArray(a.id) ? a.id : [a.id];
+            for (const id of ids) if (!store.itemsOwned.includes(id)) store.itemsOwned.push(id);
             break;
+          }
           case 'bag':
             store.bag[a.id] = (store.bag[a.id] | 0) + (a.v | 0);
             break;
           case 'league':
-            store.league = Math.max(store.league, a.v | 0);
+            if (!Array.isArray(store.league)) store.league = [];
+            if (!store.league.includes(a.v | 0)) store.league.push(a.v | 0);
             break;
           case 'biome':
-            store.biomes = union(store.biomes, [a.id]);
+            if (store.biomes[a.id] === undefined) store.biomes[a.id] = 0;
             break;
           default:
             break;
@@ -242,28 +259,32 @@
       seed: r.seed, moves: r.moves || [], items: r.items || [],
       splits: r.splits || [], ranked: true, mode: r.mode || 'standard',
     };
+    if (!Array.isArray(store.runs)) store.runs = [];
     store.runs.unshift(rec);
     if (store.runs.length > 200) store.runs.length = 200;
-    store.counters.runs = (store.counters.runs | 0) + 1;
-    store.counters.kills = (store.counters.kills | 0) + (r.kills | 0);
-    store.counters.maxTime = Math.max(store.counters.maxTime | 0, Math.round(r.time || 0));
-    store.counters.maxLevel = Math.max(store.counters.maxLevel | 0, r.level | 0);
-    store.counters.playtime = (store.counters.playtime | 0) + Math.round(r.time || 0);
-    store.counters.bosses = (store.counters.bosses | 0) + (r.bosses | 0);
-    store.counters.legendaries = (store.counters.legendaries | 0) + (r.legendaries | 0);
-    if (r.econ && r.econ.gold) store.counters.gold = (store.counters.gold | 0) + (r.econ.gold | 0);
-    // 星尘奖励：离线版给得宽松
+
+    const c = store.counters;
+    c.runs = (c.runs | 0) + 1;
+    c.kills = (c.kills | 0) + (r.kills | 0);
+    c.maxTime = Math.max(c.maxTime | 0, Math.round(r.time || 0));
+    c.maxLevel = Math.max(c.maxLevel | 0, r.level | 0);
+    c.playtime = (c.playtime | 0) + Math.round(r.time || 0);
+    c.bosses = (c.bosses | 0) + (r.bosses | 0);
+    c.legendaries = (c.legendaries | 0) + (r.legendaries | 0);
+    if (r.econ && r.econ.gold) c.gold = (c.gold | 0) + (r.econ.gold | 0);
+
     const gain = Math.max(1, Math.round((r.kills | 0) * 0.5 + (r.time || 0) * 0.2));
     store.stardust = (store.stardust | 0) + gain;
     store.totalStardust = (store.totalStardust | 0) + gain;
-    // 邦币：离线版按 Boss 击杀给，方便体验
+
+    let bonk = 0;
     if (r.bosses) {
-      const bonk = r.bosses * (1 + Math.floor(Math.random() * 3));
+      bonk = r.bosses * (1 + Math.floor(Math.random() * 3));
       store.bonk = (store.bonk | 0) + bonk;
       store.totalBonk = (store.totalBonk | 0) + bonk;
     }
     save();
-    return { gain, record: rec };
+    return { gain, bonk, record: rec };
   }
 
   /* ---------------------------------------------------------------- 路由 */
@@ -275,7 +296,7 @@
     body = body || {};
     const q = query || new Map();
 
-    // ---- 公共状态
+    /* ---- 公共状态 ---- */
     if (method === 'GET' && P === '/status') {
       return j({
         ok: true, build: BUILD, version: VERSION, offline: true,
@@ -288,7 +309,7 @@
       return j({ build: BUILD, version: VERSION });
     }
 
-    // ---- 认证
+    /* ---- 认证 ---- */
     if (method === 'POST' && P === '/auth/guest') {
       guestSession = true;
       if (!store.name || store.name === 'Entrenador') {
@@ -305,7 +326,8 @@
       const ok = name.length >= 3;
       return j({ ok, free: ok, taken: !ok, available: ok, name });
     }
-    if (method === 'POST' && (P === '/auth/register' || P === '/auth/login' || P === '/auth/guest-name')) {
+    if (method === 'POST' && (P === '/auth/register' || P === '/auth/login' ||
+                              P === '/auth/upgrade' || P === '/auth/guest-name')) {
       const name = String(body.name || '').trim();
       if (name) store.name = name.slice(0, 16);
       guestSession = false;
@@ -314,54 +336,75 @@
     }
     if (method === 'POST' && P === '/auth/logout') return noContent();
 
-    // ---- 存档
+    /* ---- 存档 ---- */
     if (method === 'GET' && P === '/profile') {
       return j({ now: now(), profile: publicProfile() });
     }
     if (method === 'PUT' && P === '/profile/prefs') {
-      for (const k of ['lastSpecies', 'lastBiome', 'avatar', 'frame', 'title']) {
+      for (const k of ['lastSpecies', 'lastBiome', 'avatar', 'frame', 'title', 'banner']) {
         if (body[k] !== undefined) store[k] = body[k];
       }
       if (body.settings && typeof body.settings === 'object') {
         store.settings = { ...store.settings, ...body.settings };
       }
       if (Array.isArray(body.skins)) store.skins = body.skins;
-      if (Array.isArray(body.team)) store.team = body.team;
+      if (Array.isArray(body.team) && body.team.length) store.team = body.team;
+      if (Array.isArray(body.banished)) store.banished = body.banished;
+      if (Array.isArray(body.itemsOff)) store.itemsOff = body.itemsOff;
+      save();
+      return j({ ok: true, profile: publicProfile() });
+    }
+    if (method === 'POST' && P === '/profile/actions') {
+      applyActions(body.actions || []);
+      save();
+      return j({ ok: true, profile: publicProfile() });
+    }
+    if (method === 'POST' && P === '/profile/stash') {
+      if (body.bag && typeof body.bag === 'object') {
+        Object.assign(store.bag, body.bag);
+      }
       save();
       return j({ ok: true, profile: publicProfile() });
     }
 
-// ---- 选择初始伙伴（POST /profile/starter { id }）
+    /* ---- 选择初始伙伴 ---- */
     if (method === 'POST' && P === '/profile/starter') {
       const id = (body.id | 0) || 4;
-      store.starter = id;
+      // 关都（1-151）写 starter，城都（152-251）写 starterJ
+      if (id > KANTO_MAX) {
+        if (!store.starterJ) store.starterJ = id;
+        if (!Array.isArray(store.johtoForms)) store.johtoForms = [];
+        if (!store.johtoForms.includes(id)) store.johtoForms.push(id);
+      } else {
+        if (!store.starter) store.starter = id;
+      }
       store.lastSpecies = id;
-      store.team = union(store.team, [id]);
-      store.captured = union(store.captured, [id]);
-      store.seen = union(store.seen, [id]);
-      if (!Array.isArray(store.league)) store.league = [];
-      if (Array.isArray(store.league) && !store.league.includes(id)) store.league.push(id);
+      for (const k of ['team', 'league', 'unlocked', 'seen']) {
+        if (!Array.isArray(store[k])) store[k] = [];
+        if (!store[k].includes(id)) store[k].push(id);
+      }
+      if (!store.captured[id]) store.captured[id] = 1;
       save();
       return j({ ok: true, profile: publicProfile() });
     }
 
-    // ---- 对局
+    /* ---- 对局 ---- */
     if (method === 'POST' && /^\/runs\/start$/.test(P)) {
       return j({ id: 'run-' + rnd32().toString(16), seed: rnd32() | 0, started: now() });
     }
     if (method === 'POST' && /^\/runs\/[^/]+\/finish$/.test(P)) {
       const id = P.split('/')[2];
       const res = applyRunResult(body.result || body, id);
-      return j({ ok: true, record: res.record, reward: { stardust: res.gain } });
+      return j({ ok: true, record: res.record, reward: { stardust: res.gain, bonk: res.bonk } });
     }
     if (method === 'POST' && /^\/runs\/[^/]+\/(checkpoint|abandon)$/.test(P)) {
       return j({ ok: true });
     }
     if (method === 'GET' && P === '/runs') {
-      return j({ runs: store.runs.slice(0, 50) });
+      return j({ runs: (store.runs || []).slice(0, 50) });
     }
 
-    // ---- 实验室
+    /* ---- 实验室 ---- */
     if (method === 'POST' && /^\/lab\/[^/]+\/buy$/.test(P)) {
       const id = P.split('/')[2];
       const max = (LAB.find((x) => x[0] === id) || [id, 1])[1];
@@ -375,7 +418,43 @@
       return j({ ok: true, profile: publicProfile() });
     }
 
-    // ---- 任务 / 委托
+    /* ---- 排行榜（离线版：用玩家自己的记录） ---- */
+    if (method === 'GET' && /^\/leaderboard/.test(P)) {
+      if (/^\/leaderboard\/pokemon/.test(P)) {
+        return j({ entries: [], info: { season: 1, total: 0 } });
+      }
+      const mode = String(q.get('mode') || 'standard');
+      const limit = Math.min(100, Number(q.get('limit') || 50));
+      const list = (store.runs || [])
+        .slice()
+        .sort((a, b) => (b.score || b.kills || 0) - (a.score || a.kills || 0))
+        .slice(0, limit)
+        .map((r, i) => ({
+          rank: i + 1, me: true, id: r.id, name: store.name,
+          species: r.species, avatar: store.avatar, frame: store.frame,
+          skins: [], tag: '', title: store.title,
+          value: r.score || r.kills || 0,
+          floor: r.stage || 1, wave: 3, time: Math.round(r.time || 0),
+        }));
+      return j({
+        entries: list,
+        me: list.length ? list[0] : null,
+        info: { season: 1, mode, total: list.length, teams: 0, clans: 0 },
+      });
+    }
+    if (method === 'GET' && /^\/records/.test(P)) {
+      const best = {};
+      for (const r of store.runs || []) {
+        const k = r.biome + '-' + (r.tier | 0);
+        if (!best[k] || (r.score || r.kills || 0) > (best[k].score || best[k].kills || 0)) best[k] = r;
+      }
+      return j(best);
+    }
+    if (method === 'GET' && /^\/seasons/.test(P)) {
+      return j({ season: 1, ends: 0, awards: [], claimed: false });
+    }
+
+    /* ---- 任务 ---- */
     if (method === 'GET' && (P === '/quests' || P === '/tasks')) {
       return j({ list: [], claimed: [] });
     }
@@ -383,23 +462,20 @@
       return j({ ok: true, profile: publicProfile() });
     }
 
-    // ---- 商店 / 道具
+    /* ---- 商店 / 道具 ---- */
     if (method === 'POST' && /^\/items\/[^/]+\/(buy|equip|off|sell)$/.test(P)) {
       return j({ ok: true, profile: publicProfile() });
     }
 
-    // ---- 赛季 / 活动：给空壳，避免前端报错
-    if (method === 'GET' && /^\/(seasons|events|leaderboard|news|players|friends|clans)/.test(P)) {
+    /* ---- 其他：空壳 ---- */
+    if (method === 'GET' && /^\/(events|news|players|friends|clans)/.test(P)) {
       return j({ list: [], ok: true });
     }
-    if (method === 'POST' && /^\/(seasons|events|records)/.test(P)) {
+    if (method === 'POST' && /^\/(events)/.test(P)) {
       return j({ ok: true });
     }
 
-    // ---- 兜底：任何未实现的写操作都当成功，避免卡流程
-    if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
-      return j({ ok: true });
-    }
+    /* ---- 兜底 ---- */
     return j({ ok: true });
   }
 
@@ -408,7 +484,12 @@
     handle, load, save, normalize,
     fullProfile, freshProfile,
     get store() { return load(); },
-    reset(toFull) { store = toFull ? fullProfile() : freshProfile(); guestSession = false; save(); return store; },
+    reset(toFull) {
+      store = toFull ? fullProfile() : freshProfile();
+      guestSession = false;
+      save();
+      return store;
+    },
     exportRaw() { load(); return global.localStorage.getItem(STORE_KEY); },
     importRaw(s) {
       const o = JSON.parse(s);

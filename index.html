@@ -1,17 +1,18 @@
 <!doctype html>
 <html lang="es">
   <head>
+    <script src="./net-guard.js"></script>
     <script src="./api-core.js"></script>
     <script src="./offline-fetch.js"></script>
     <script src="./save-manager.js"></script>
     <script src="./save-ui.js"></script>
     <script src="./settle-on-exit.js"></script>
     
-    <meta name="pokebonk-build" content="mvpjh5lt">
+    <meta name="pokebonk-build" content="mwe4m5hw">
     <script data-pb-recovery="">// Inlined before the module entry by Vite: it must work even when that entry cannot load.
 (() => {
   const build = document.querySelector('meta[name="pokebonk-build"]')?.content || 'unknown';
-  const texts = {"es":"Reintentar","en":"Retry","pt":"Tentar de novo","fr":"Réessayer","ja":"再試行","zh":"重试","zht":"重試","ko":"다시 시도","ru":"Повторить"};
+  const texts = {"es":"Reintentar","en":"Retry","pt":"Tentar de novo","fr":"Réessayer","ja":"再試行","zh":"重试","zht":"重試","ko":"다시 시도","ru":"Повторить","de":"Erneut versuchen"};
   const tag = document.documentElement.lang.toLowerCase();
   const lang = tag === 'zh-hant' ? 'zht' : tag.split('-')[0];
   const retryText = texts[lang] || texts.en;
@@ -108,7 +109,16 @@
     </script>
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <!-- iPhone: black-translucent = the page fills the whole screen from the home screen icon (v0.8.85 changed it to «black» for everybody and iPhone players lost the full screen: reports 18109, 18415, 18739, 18817). Only iPad needs «black»: there the translucent bar hides the options (reports 17785, 17801, 16361). iOS reads the tag when the icon is added. -->
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <script>
+      (function () {
+        try {
+          var ipad = /iPad/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1 && Math.min(screen.width, screen.height) >= 600);
+          if (ipad) document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').setAttribute('content', 'black');
+        } catch (e) {}
+      })();
+    </script>
     <link rel="manifest" href="./manifest.webmanifest" />
     <!-- Title, description, canonical, hreflang, Open Graph, Twitter and JSON-LD come from src/seo.ts (vite.config.ts). -->
     <title>PokéBonk · Survivor 3D de Pokémon gratis en el navegador</title>
@@ -124,6 +134,7 @@
     <link rel="alternate" hreflang="zh-TW" href="https://pokebonk.com/?lang=zht" />
     <link rel="alternate" hreflang="ko" href="https://pokebonk.com/?lang=ko" />
     <link rel="alternate" hreflang="ru" href="https://pokebonk.com/?lang=ru" />
+    <link rel="alternate" hreflang="de" href="https://pokebonk.com/?lang=de" />
     <link rel="alternate" hreflang="x-default" href="https://pokebonk.com/" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="PokéBonk" />
@@ -144,23 +155,25 @@
     <meta property="og:locale:alternate" content="zh_TW" />
     <meta property="og:locale:alternate" content="ko_KR" />
     <meta property="og:locale:alternate" content="ru_RU" />
+    <meta property="og:locale:alternate" content="de_DE" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="PokéBonk · Survivor 3D de Pokémon gratis en el navegador" />
     <meta name="twitter:description" content="Survivor 3D gratis en el navegador con los 151 Pokémon de Kanto: sobrevive a hordas salvajes, evoluciona, lanza tu Ultimate y desbloquea la Liga. Fan-game no oficial." />
     <meta name="twitter:image" content="https://pokebonk.com/social/card-es.jpg" />
     <meta name="twitter:image:alt" content="PokéBonk: un bosque de mesetas con una Poké Ball en un altar. Survivor 3D gratis en el navegador." />
-    <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"WebSite","@id":"https://pokebonk.com/#website","name":"PokéBonk","url":"https://pokebonk.com/","inLanguage":["es","en","pt","fr","ja","zh-CN","zh-TW","ko","ru"]},{"@type":["VideoGame","WebApplication"],"@id":"https://pokebonk.com/#game","name":"PokéBonk","url":"https://pokebonk.com/","description":"Survivor 3D gratis en el navegador con los 151 Pokémon de Kanto: sobrevive a hordas salvajes, evoluciona, lanza tu Ultimate y desbloquea la Liga. Fan-game no oficial.","image":"https://pokebonk.com/social/card-es.jpg","inLanguage":"es","isPartOf":{"@id":"https://pokebonk.com/#website"},"genre":["Survivor","Roguelite","Action"],"gamePlatform":"Web browser","playMode":"SinglePlayer","applicationCategory":"GameApplication","operatingSystem":"Any (WebGL)","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"EUR"},"sameAs":["https://discord.gg/X7KusQqx8X"]}]}</script>
+    <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"WebSite","@id":"https://pokebonk.com/#website","name":"PokéBonk","url":"https://pokebonk.com/","inLanguage":["es","en","pt","fr","ja","zh-CN","zh-TW","ko","ru","de"]},{"@type":["VideoGame","WebApplication"],"@id":"https://pokebonk.com/#game","name":"PokéBonk","url":"https://pokebonk.com/","description":"Survivor 3D gratis en el navegador con los 151 Pokémon de Kanto: sobrevive a hordas salvajes, evoluciona, lanza tu Ultimate y desbloquea la Liga. Fan-game no oficial.","image":"https://pokebonk.com/social/card-es.jpg","inLanguage":"es","isPartOf":{"@id":"https://pokebonk.com/#website"},"genre":["Survivor","Roguelite","Action"],"gamePlatform":"Web browser","playMode":"SinglePlayer","applicationCategory":"GameApplication","operatingSystem":"Any (WebGL)","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"EUR"},"sameAs":["https://discord.gg/X7KusQqx8X"]}]}</script>
     <meta name="application-name" content="PokéBonk" />
     <meta name="apple-mobile-web-app-title" content="PokéBonk" />
     <link rel="icon" href="./favicon.ico" sizes="48x48" />
     <link rel="icon" href="./icons/favicon-96.png" type="image/png" sizes="96x96" />
     <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
-    <script type="module" crossorigin src="./assets/main-B5SeHpLD-mvpjh5lt.js"></script>
-    <link rel="modulepreload" crossorigin href="./assets/modulepreload-polyfill-P2Xu9kJm-mvpjh5lt.js">
-    <link rel="modulepreload" crossorigin href="./assets/i18n-Bjw6RPm7-mvpjh5lt.js">
+    <script type="module" crossorigin src="./assets/main-Cjt-IQx1-mwe4m5hw.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/modulepreload-polyfill-P2Xu9kJm-mwe4m5hw.js">
+    <link rel="modulepreload" crossorigin href="./assets/i18n-BGHWfjZr-mwe4m5hw.js">
+    <link rel="modulepreload" crossorigin href="./assets/preload-helper-AjJCmoQh-mwe4m5hw.js">
   </head>
   <body>
-    <noscript><main style="max-width:640px;margin:40px auto;padding:0 16px;color:#fff;font:16px/1.5 system-ui,sans-serif"><h1>PokéBonk</h1><p>Survivor 3D gratis en el navegador con los 151 Pokémon de Kanto: sobrevive a hordas salvajes, evoluciona, lanza tu Ultimate y desbloquea la Liga. Fan-game no oficial.</p><p>PokéBonk necesita JavaScript y WebGL para funcionar. Actívalos y recarga la página.</p><p><a href="/?lang=es" hreflang="es">ES</a> · <a href="/?lang=en" hreflang="en">EN</a> · <a href="/?lang=pt" hreflang="pt">PT</a> · <a href="/?lang=fr" hreflang="fr">FR</a> · <a href="/?lang=ja" hreflang="ja">JA</a> · <a href="/?lang=zh" hreflang="zh-CN">ZH</a> · <a href="/?lang=zht" hreflang="zh-TW">ZHT</a> · <a href="/?lang=ko" hreflang="ko">KO</a> · <a href="/?lang=ru" hreflang="ru">RU</a></p><p><a href="https://discord.gg/X7KusQqx8X">Discord</a> · <a href="/legal">Legal</a></p></main></noscript>
+    <noscript><main style="max-width:640px;margin:40px auto;padding:0 16px;color:#fff;font:16px/1.5 system-ui,sans-serif"><h1>PokéBonk</h1><p>Survivor 3D gratis en el navegador con los 151 Pokémon de Kanto: sobrevive a hordas salvajes, evoluciona, lanza tu Ultimate y desbloquea la Liga. Fan-game no oficial.</p><p>PokéBonk necesita JavaScript y WebGL para funcionar. Actívalos y recarga la página.</p><p><a href="/?lang=es" hreflang="es">ES</a> · <a href="/?lang=en" hreflang="en">EN</a> · <a href="/?lang=pt" hreflang="pt">PT</a> · <a href="/?lang=fr" hreflang="fr">FR</a> · <a href="/?lang=ja" hreflang="ja">JA</a> · <a href="/?lang=zh" hreflang="zh-CN">ZH</a> · <a href="/?lang=zht" hreflang="zh-TW">ZHT</a> · <a href="/?lang=ko" hreflang="ko">KO</a> · <a href="/?lang=ru" hreflang="ru">RU</a> · <a href="/?lang=de" hreflang="de">DE</a></p><p><a href="https://discord.gg/X7KusQqx8X">Discord</a> · <a href="/legal">Legal</a></p></main></noscript>
     <canvas id="game"></canvas>
     <div id="ui"></div>
   </body>

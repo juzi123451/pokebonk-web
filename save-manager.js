@@ -42,8 +42,8 @@
         starter: p.starter || 0,
         stardust: p.stardust || 0,
         bonk: p.bonk || 0,
-        league: Array.isArray(p.league) ? p.league.length : (p.league || 0),
-        captured: (p.captured || []).length,
+        league: Array.isArray(p.league) ? p.league.length : (typeof p.league === 'number' ? p.league : 0),
+        captured: Array.isArray(p.captured) ? p.captured.length : Object.keys(p.captured || {}).length,
         runs: (p.runs || []).length,
         savedAt: o.savedAt || null,
       };
